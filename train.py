@@ -96,28 +96,34 @@ class CustomEnvWrapper(gym.Wrapper):
 
         # Use the opponent_model to determine opponent's actions
         if self.opponent_model:
-            # Predict the opponent's action
-            opponent_action, _ = self.opponent_model.predict(self.opp_obs, deterministic=True)
+            # Predict the opponent's actions for all 16 units
+            opponent_actions, _ = self.opponent_model.predict(self.opp_obs, deterministic=True)
 
-            # Initialize actions for all 16 units with [0, 0, 0]
-            actions_player_1 = [[0, 0, 0]] * 16  # Initialize 16 units with default [0, 0, 0]
-            # Set the action for the first unit to [1, 0, 0] (or any desired action)
-            focused_opp_action = action_mapping[int(opponent_action)]
-            actions_player_1[0] = focused_opp_action  # Focus on the first unit of player_0
+            # Initialize actions for all 16 units with [0, 0, 0] as the default action
+            actions_player_1 = [[0, 0, 0]] * 16
 
-            # Convert the list of actions into a jax numpy array
+            # Map the predicted actions to the required format
+            for unit_id, unit_action in enumerate(opponent_actions):
+                # Convert each unit's predicted action using the `action_mapping`
+                mapped_action = action_mapping[int(unit_action)]  # Ensure the action is cast to an int
+                actions_player_1[unit_id] = mapped_action  # Update the action for the corresponding unit
+
+            # Convert the updated list of actions into a jax numpy array
             action["player_1"] = jnp.array(actions_player_1)
         else:
             action["player_1"] = jnp.array([[0, 0, 0]] * 16)  # 16 units with default [0, 0, 0] action for player_1
 
-        # Initialize actions for all 16 units with [0, 0, 0]
-        actions_player_0 = [[0, 0, 0]] * 16  # Initialize 16 units with default [0, 0, 0]
+        # Initialize actions for all 16 units with [0, 0, 0] as the default action
+        actions_player_0 = [[0, 0, 0]] * 16  
 
-        # Set the action for the first unit to [1, 0, 0] (or any desired action)
-        focused_unit_action = action_mapping[action["player_0"]]
-        actions_player_0[0] = focused_unit_action  # Focus on the first unit of player_0
+        # Map the input array of 16 actions (player_0's actions) to the required format
+        input_actions = action["player_0"]  # Assume this is an array of 16 actions
+        for unit_id, unit_action in enumerate(input_actions):
+            # Convert each unit's action using the `action_mapping`
+            mapped_action = action_mapping[unit_action]  # Map the discrete action to [x, y, z]
+            actions_player_0[unit_id] = mapped_action  # Update the action for the corresponding unit
 
-        # Convert the list of actions into a jax numpy array
+        # Convert the updated list of actions into a jax numpy array
         action["player_0"] = jnp.array(actions_player_0)
 
         obs, _, termination, truncation, info = self.env.step(action)
@@ -130,24 +136,55 @@ class CustomEnvWrapper(gym.Wrapper):
 
         metrics = {
             "points_produced": state.team_points[0],
-            "energy_collected": state.units.energy[0][0][0],
+            'enemy_points': state.team_points[1],
+            "energy": sum(state.units.energy[0])[0],
+            "enemy_energy": sum(state.units.energy[1])[0],
             "win": state.team_wins[0],
+            'lost': state.team_wins[1],
         }
-        alive_end = 0
+        energy_end = 0
+        advantage = 0
         if state.match_steps == 100:
-            alive_end = 1 if state.units.energy[0][0][0] > 0 else 0
-            metrics['alive'] = alive_end
+            energy_end = 1 if metrics["energy"] > metrics["enemy_energy"] else -1
+            advantage = 1 if metrics["points_produced"] > metrics["enemy_points"] else -1
 
         info["metrics"] = metrics
         reward = 0
         if self.prev_step_metrics is not None:
-            roundWin = 1 if metrics["win"] > self.prev_step_metrics["win"] else 0
-            matchWin = 1 if metrics["win"] >= 3 else 0
+            roundWin , matchWin = 0 , 0 
+            if metrics["win"] > self.prev_step_metrics["win"]:
+                roundWin = 1 
+                if metrics["win"] >= 3:
+                    matchWin = 1
+             
+            if metrics["lost"] > self.prev_step_metrics["lost"]:
+                roundWin = -1 
+                if metrics["win"] >= 3:
+                    matchWin = -1
 
+            # Calculate advantage rewards
+            point_advantage = metrics["points_produced"] - metrics["enemy_points"]
+            energy_advantage = metrics["energy"] - metrics["enemy_energy"]
+
+            # Non-terminal advantage signals
+            advantage_reward = 0
+            if point_advantage > 0:
+                advantage_reward += 0.01 * point_advantage  # Positive reward for point advantage
+            elif point_advantage < 0:
+                advantage_reward -= 0.01 * abs(point_advantage)  # Penalize for losing point advantage
+
+            if energy_advantage > 0:
+                advantage_reward += 0.005 * energy_advantage  # Reward for energy advantage
+            elif energy_advantage < 0:
+                advantage_reward -= 0.005 * abs(energy_advantage)  # Penalize for energy disadvantage
             reward = (
-                (metrics["points_produced"] - self.prev_step_metrics["points_produced"]) * 0.1
-                + alive_end * 0.1
-                +(roundWin*0.5)+(matchWin)
+                0.005 * (metrics["points_produced"] - self.prev_step_metrics["points_produced"])
+                + 0.002 * (metrics["energy"] - self.prev_step_metrics["energy"])
+                + advantage_reward
+                + 0.05 * advantage  # End-of-match advantage
+                + 0.05 * energy_end
+                + 0.2 * roundWin
+                + 1.0 * matchWin
             )
         self.prev_step_metrics = metrics.copy()
         return obs, reward, termination[agent], truncation[agent], info

@@ -1,4 +1,6 @@
 from typing import Any, Dict
+import sys
+
 
 import gymnasium as gym
 import numpy as np
@@ -42,40 +44,45 @@ class SimpleUnitObservationWrapper(gym.ObservationWrapper):
     def __init__(self, env: gym.Env) -> None:
         super().__init__(env)
         self.state = None
-        self.observation_space = spaces.Box(-999, 999, shape=(11,))
+        self.observation_space = spaces.Box(-999, 999, shape=(16,16))
 
     def observation(self, obs):
         self.state = self.env.state
 
         return SimpleUnitObservationWrapper.convert_obs(obs, self.env.state)
 
-    # we make this method static so the submission/evaluation code can use this as well
+    # Modify the method to include game environment information
     @staticmethod
     def convert_obs(obs: Dict[str, Any], env_cfg: Any) -> Dict[str, npt.NDArray]:
         observation = dict()
-
         for agent in obs.keys():
-            obs_vec = np.zeros(11)  # Initial vector for each agent
+            observation[agent] = np.zeros((16, 16))  # Update shape to accommodate extra game info (e.g., 2 additional features)
             team_id = 0 if agent == "player_0" else 1
 
             shared_obs = obs[agent]
             relic_map = shared_obs["relic_nodes"]  # Access relic nodes directly
             relic_nodes_mask = shared_obs['relic_nodes_mask']
+
+            # Extract global game information
+            team_points = shared_obs["team_points"][team_id]
+            team_wins = shared_obs["team_wins"][team_id]
+            match_steps = shared_obs["match_steps"]
+
             
-            # Find coordinates of elements not equal to [-1, -1] (visible relics)
+            # Find coordinates of visible relics
             relic_tile_locations = []
             visible_relic_positions = relic_map[relic_nodes_mask == 1]
             relic_tile_locations.extend(visible_relic_positions)  # Append all visible relic positions
 
             # Convert the list of coordinates to a NumPy array
             relic_tile_locations = np.array(relic_tile_locations)
+            visible_relics = len(relic_tile_locations)
             map_features = shared_obs["map_features"]
             
             # Get the map size (width and height)
             energy_map = map_features["energy"]
             tile_type_map = map_features["tile_type"]
-            # Get the map size (width, height)
-            map_size = energy_map.shape  # or use another feature with the same shape
+            map_size = energy_map.shape  # Get map size (width, height)
             width, height = energy_map.shape    
 
             units = shared_obs["units"]
@@ -86,7 +93,6 @@ class SimpleUnitObservationWrapper(gym.ObservationWrapper):
 
                 # Get the current unit's tile energy and type
                 x, y = int(pos[0] * width), int(pos[1] * height)
-
                 current_energy = energy_map[x, y]
                 current_tile_type = tile_type_map[x, y]
 
@@ -105,29 +111,22 @@ class SimpleUnitObservationWrapper(gym.ObservationWrapper):
                     [bottom_right_energy, bottom_right_tile_type]
                 ])
 
-                # Normalize and concatenate the unit's position and energy with the tile features
-                unit_vec = np.concatenate([pos, [energy], tile_features])
-
-                # Compute closest relic tile
                 if relic_tile_locations.size > 0:
-                    # Calculate Euclidean distances from the unit to each relic tile
-                    relic_tile_distances = np.sqrt(np.sum((relic_tile_locations - np.array(units["position"][team_id][i])) ** 2, axis=1))
-                    
-                    # Get the closest relic tile
-                    closest_relic_tile_index = np.argmin(relic_tile_distances)
-                    closest_relic_tile = relic_tile_locations[closest_relic_tile_index]
-                    
-                    # Normalize the coordinates of the closest relic tile
+                    relic_tile_distances = np.sqrt(
+                        np.sum((relic_tile_locations - np.array(units["position"][team_id][i])) ** 2, axis=1)
+                    )
+                    closest_relic_tile = relic_tile_locations[np.argmin(relic_tile_distances)]
                     normalized_closest_relic_tile = closest_relic_tile / map_size
                 else:
-                    normalized_closest_relic_tile = np.zeros(2)  # If no relic tile is available
+                    normalized_closest_relic_tile = np.zeros(2)
 
-                # Concatenate the unit information and closest relic tile
-                obs_vec = np.concatenate([unit_vec, normalized_closest_relic_tile - pos], axis=-1)
-                
-                break
-
-            observation[agent] = obs_vec
-
+                # Combine unit features and game-level information
+                unit_vec = np.concatenate([pos, [energy], tile_features])
+                obs_vec = np.concatenate([
+                    unit_vec,
+                    normalized_closest_relic_tile - pos,  # Relic tile information
+                    [team_points, match_steps / 100, team_wins/5,team_id,visible_relics]  # Add normalized team points and match step
+                ])
+                observation[agent][i] = obs_vec
 
         return observation
