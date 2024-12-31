@@ -44,7 +44,7 @@ tensorboard --logdir logs
     
 Bundle your files:
 ```bash
- tar -czvf submission.tar.gz agent.py main.py
+ tar -czvf submission.tar.gz *
 ```
 
 Upload submission.tar.gz to the Kaggle competition page.

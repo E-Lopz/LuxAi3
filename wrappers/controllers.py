@@ -152,18 +152,49 @@ class SimpleUnitDiscreteController(Controller):
 
         Doesn't account for whether robot has enough power
         """
+        team_id = 0 if agent == "player_0" else 1
         shared_obs = obs[agent]
+        units = shared_obs["units"]
+        action_masks = np.zeros((16, self.total_act_dims), dtype=bool)  # Action mask for all units
 
+        map_features = shared_obs["map_features"]
+            
+        # Get the map size (width and height)
+        energy_map = map_features["energy"]
+        tile_type_map = map_features["tile_type"]
+        map_size = energy_map.shape  # Get map size (width, height)
+        width, height = energy_map.shape  
 
-        units = shared_obs["units"][agent]
-        action_mask = np.zeros((self.total_act_dims), dtype=bool)
-        for unit_id in units.keys():
-            action_mask = np.zeros(self.total_act_dims)
-            # movement is always valid
-            #to change if out of bounds not valid
-            action_mask[:4] = True
+        # Iterate over each unit for the current team
+        for i in range(16):
+            action_mask = np.zeros(self.total_act_dims, dtype=bool)
 
-            # no-op is always valid
-            action_mask[-1] = True
-            break
-        return action_mask
+            # Retrieve the unit's position
+            x, y = units["position"][team_id][i]
+
+            # Define movement actions: [0: Up, 1: Down, 2: Left, 3: Right]
+            move_deltas = {
+                1: (0, -1), # Up
+                2: (1, 0),  # right
+                3: (0, 1),  # down
+                4: (-1, 0)  # left
+            }
+
+            # Check movement validity
+            for move_action, delta in move_deltas.items():
+                dx, dy = delta
+                new_x, new_y = x + dx, y + dy
+
+                # Ensure new position is within bounds and not an asteroid
+                if 0 <= new_x < width and 0 <= new_y < height:
+                    if tile_type_map[new_x, new_y] != 2:  # Assuming "asteroid" is a key in the map
+                        action_mask[move_action] = True
+
+            # No-op is always valid
+            action_mask[0] = True
+
+            # Assign the mask for this unit
+            action_masks[i] = action_mask
+            # Convert the action mask to numeric array if needed
+            action_masks = action_masks.astype(np.float32)  # Ensures compatibility with JA
+        return action_masks

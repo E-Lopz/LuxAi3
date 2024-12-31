@@ -61,36 +61,38 @@ class Agent:
             # Extract features for the current observation
             features = self.policy.policy.features_extractor(obs.unsqueeze(0))
 
+            # Step 2: Check latent features
+            latent_pi, _ = self.policy.policy.mlp_extractor(features)
+
+
+            # Step 3: Check logits
+            logits = self.policy.policy.action_net(latent_pi)
+
+            # Reshape logits to [16, total_act_dims]
+            logits_per_unit = logits.view(16, 5)
+
+
+            # Step 4: Check action mask
+            action_mask = (
+                th.from_numpy(self.controller.action_masks(self.player, raw_obs))
+                .bool()
+            )
+
+
+
+            # Step 5: Check masked logits
+            logits_per_unit[~action_mask] = -1e8
             
 
-            # Get latent policy (for actions) and value (for critic)
-            #latent_pi, _ = self.policy.policy.mlp_extractor(features)
-
-            # Compute logits for the action distribution
-            #logits = self.policy.policy.action_net(latent_pi)
-            
-            
-            # Expand logits for multiple units (assuming logits shape is [1, action_space])
-            # For 16 units, duplicate logits for each unit
-            #logits_per_unit = logits.repeat(16, 1)  # Shape: [16, action_space]
-
-            
-            # Apply the action mask (assume action_mask is a boolean tensor of shape [16, action_space])
-            #logits_per_unit[~action_mask] = -1e8  # Mask out invalid actions
-
-            # Define a distribution for each unit
-            #dist = th.distributions.Categorical(logits=logits_per_unit)
-
-            actions, _ = self.policy.predict(obs, deterministic=True)
-
-            # Sample actions for all units
-            #actions = dist.sample().cpu().numpy()  # Shape: [16]
+            # Step 6: Check sampled actions
+            dist = th.distributions.Categorical(logits=logits_per_unit)
+            actions = dist.sample().cpu().numpy()
 
             
 
         # use our controller which we trained with in train.py to generate a Lux S3 compatible action
         lux_action = self.controller.action_to_lux_action(
-            self.player, raw_obs, actions
+            self.player, raw_obs, actions.tolist()
         )
 
         return lux_action

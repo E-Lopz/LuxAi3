@@ -44,7 +44,8 @@ class SimpleUnitObservationWrapper(gym.ObservationWrapper):
     def __init__(self, env: gym.Env) -> None:
         super().__init__(env)
         self.state = None
-        self.observation_space = spaces.Box(-999, 999, shape=(16,16))
+        self.observation_space = spaces.Box(-999, 999, shape=(16,24))
+        memory = {"relics": set()}
 
     def observation(self, obs):
         self.state = self.env.state
@@ -56,8 +57,9 @@ class SimpleUnitObservationWrapper(gym.ObservationWrapper):
     def convert_obs(obs: Dict[str, Any], env_cfg: Any) -> Dict[str, npt.NDArray]:
         observation = dict()
         for agent in obs.keys():
-            observation[agent] = np.zeros((16, 16))  # Update shape to accommodate extra game info (e.g., 2 additional features)
+            observation[agent] = np.zeros((16, 24))  # Update shape to accommodate extra game info (e.g., 2 additional features)
             team_id = 0 if agent == "player_0" else 1
+            opp_team_id = 1 if team_id == 0 else 0
 
             shared_obs = obs[agent]
             relic_map = shared_obs["relic_nodes"]  # Access relic nodes directly
@@ -65,6 +67,10 @@ class SimpleUnitObservationWrapper(gym.ObservationWrapper):
 
             # Extract global game information
             team_points = shared_obs["team_points"][team_id]
+            team_wins = shared_obs["team_wins"][team_id]
+            match_steps = shared_obs["match_steps"]
+            enemy_points = shared_obs["team_points"][opp_team_id]
+            enemy_wins = shared_obs["team_wins"][opp_team_id]
             team_wins = shared_obs["team_wins"][team_id]
             match_steps = shared_obs["match_steps"]
 
@@ -76,6 +82,7 @@ class SimpleUnitObservationWrapper(gym.ObservationWrapper):
 
             # Convert the list of coordinates to a NumPy array
             relic_tile_locations = np.array(relic_tile_locations)
+            relic_tile_locations
             visible_relics = len(relic_tile_locations)
             map_features = shared_obs["map_features"]
             
@@ -86,6 +93,8 @@ class SimpleUnitObservationWrapper(gym.ObservationWrapper):
             width, height = energy_map.shape    
 
             units = shared_obs["units"]
+            team_energy = sum(units["energy"][team_id])
+            enemy_energy = sum(units["energy"][opp_team_id])
             for i in range(16):
                 # Extract unit's energy and position
                 energy = units["energy"][team_id][i]
@@ -96,19 +105,47 @@ class SimpleUnitObservationWrapper(gym.ObservationWrapper):
                 current_energy = energy_map[x, y]
                 current_tile_type = tile_type_map[x, y]
 
-                # Get the energy and type for the top-left tile (0, 0)
-                top_left_energy = energy_map[0, 0]
-                top_left_tile_type = tile_type_map[0, 0]
+                # Initialize variables with default values
+                top_energy = -1
+                top_tile_type = -1
+                bottom_energy = -1
+                bottom_tile_type = -1
+                left_energy = -1
+                left_tile_type = -1
+                right_energy = -1
+                right_tile_type = -1
 
-                # Get the energy and type for the bottom-right tile (width-1, height-1)
-                bottom_right_energy = energy_map[width-1, height-1]
-                bottom_right_tile_type = tile_type_map[width-1, height-1]
+                # Check bounds and update variables
+                # Assuming `energy_map` and `tile_type_map` have dimensions (width, height)
+                width, height = energy_map.shape
+
+                # Top
+                if y - 1 >= 0:
+                    top_energy = energy_map[x, y - 1]
+                    top_tile_type = tile_type_map[x, y - 1]
+
+                # Bottom
+                if y + 1 < height:
+                    bottom_energy = energy_map[x, y + 1]
+                    bottom_tile_type = tile_type_map[x, y + 1]
+
+                # Left
+                if x - 1 >= 0:
+                    left_energy = energy_map[x - 1, y]
+                    left_tile_type = tile_type_map[x - 1, y]
+
+                # Right
+                if x + 1 < width:
+                    right_energy = energy_map[x + 1, y]
+                    right_tile_type = tile_type_map[x + 1, y]
 
                 # Concatenate the features: current position, energy, and tile types
                 tile_features = np.concatenate([
                     [current_energy, current_tile_type],
-                    [top_left_energy, top_left_tile_type],
-                    [bottom_right_energy, bottom_right_tile_type]
+                    [top_energy, top_tile_type],
+                    [bottom_energy, bottom_tile_type],
+                    [left_energy, left_tile_type],
+                    [right_energy, right_tile_type],
                 ])
 
                 if relic_tile_locations.size > 0:
@@ -125,7 +162,8 @@ class SimpleUnitObservationWrapper(gym.ObservationWrapper):
                 obs_vec = np.concatenate([
                     unit_vec,
                     normalized_closest_relic_tile - pos,  # Relic tile information
-                    [team_points, match_steps / 100, team_wins/5,team_id,visible_relics]  # Add normalized team points and match step
+                    [team_points, match_steps / 100, team_wins/5,team_energy,team_id,visible_relics,
+                     enemy_points, enemy_wins/5, enemy_energy]  # Add normalized team points and match step
                 ])
                 observation[agent][i] = obs_vec
 

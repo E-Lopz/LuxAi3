@@ -137,8 +137,8 @@ class CustomEnvWrapper(gym.Wrapper):
         metrics = {
             "points_produced": state.team_points[0],
             'enemy_points': state.team_points[1],
-            "energy": sum(state.units.energy[0])[0],
-            "enemy_energy": sum(state.units.energy[1])[0],
+            "energy": sum(state.units.energy[0])[0]/1000,
+            "enemy_energy": sum(state.units.energy[1])[0]/1000,
             "win": state.team_wins[0],
             'lost': state.team_wins[1],
         }
@@ -178,7 +178,7 @@ class CustomEnvWrapper(gym.Wrapper):
             elif energy_advantage < 0:
                 advantage_reward -= 0.005 * abs(energy_advantage)  # Penalize for energy disadvantage
             reward = (
-                0.005 * (metrics["points_produced"] - self.prev_step_metrics["points_produced"])
+                0.006 * (metrics["points_produced"] - self.prev_step_metrics["points_produced"])
                 + 0.002 * (metrics["energy"] - self.prev_step_metrics["energy"])
                 + advantage_reward
                 + 0.05 * advantage  # End-of-match advantage
