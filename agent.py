@@ -32,6 +32,14 @@ class Agent:
         np.random.seed(0)
         self.env_cfg = env_cfg
 
+        self.memory = {'player_0':{
+                       "relics": set(),
+                        'map':{}},
+                        'player_1':{
+                       "relics": set(),
+                        'map':{}},
+                        'accessed':0}
+
         directory = osp.dirname(__file__)
         self.policy = PPO.load(osp.join(directory, MODEL_WEIGHTS_RELATIVE_PATH))
 
@@ -41,8 +49,9 @@ class Agent:
         # first convert observations using the same observation wrapper you used for training
         # note that SimpleUnitObservationWrapper takes input as the full observation for both players and returns an obs for players
         raw_obs = dict(player_0=obs, player_1=obs)
-        obs = SimpleUnitObservationWrapper.convert_obs(raw_obs, env_cfg=self.env_cfg)
+        obs = SimpleUnitObservationWrapper.convert_obs(raw_obs, env_cfg=self.env_cfg,memory=self.memory)
         obs = obs[self.player]
+        #print(self.memory, file=sys.stderr)
 
         
 

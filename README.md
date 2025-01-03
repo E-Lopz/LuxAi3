@@ -36,7 +36,20 @@ You can monitor training progress using TensorBoard:
 tensorboard --logdir logs
 ```
 
-### **4. Submitting to Kaggle**
+### **4. Getting Started**
+To verify your installation, you can run a match between two random agents:
+
+```bash
+luxai-s3 --help
+```
+
+```bash
+luxai-s3 path/to/bot/main.py path/to/bot/main.py --output replay.json
+```
+
+Then upload the replay.json to the online visualizer here: https://s3vis.lux-ai.org/ (a link on the lux-ai.org website will be up soon) 
+
+### **5. Submitting to Kaggle**
 
 - **To create a submission package:**:
     - `Ensure your trained model is saved in logs/exp_1/models/best_model.zip.`
@@ -48,3 +61,4 @@ Bundle your files:
 ```
 
 Upload submission.tar.gz to the Kaggle competition page.
+

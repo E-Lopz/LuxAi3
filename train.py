@@ -1,4 +1,5 @@
 import os.path as osp
+import random
 
 import gymnasium as gym
 import numpy as np
@@ -53,24 +54,15 @@ def get_opponent_model(model_path="/models/opponent_model.zip"):
 
 class CustomEnvWrapper(gym.Wrapper):
     def __init__(self, env: gym.Env, opponent_model=None, update_interval=10000, model_path='logs') -> None:
-        """
-        Adds a custom reward and turns the LuxAI_S3 environment into a single-agent environment for easy training.
-        :param env: The base environment.
-        :param opponent_model: The initial opponent model (can be None).
-        :param update_interval: Number of steps after which the opponent model will be updated.
-        :param model_path: Path to the directory where the opponent model is stored (best_model.zip).
-        """
         super().__init__(env)
         self.prev_step_metrics = None
         self.opponent_model = opponent_model
         self.update_interval = update_interval
         self.model_path = model_path
         self.steps = 0  # Step counter to track updates
+        self.controlled_player = "player_0"  # Start by controlling player_0
 
     def load_opponent_model(self):
-        """
-        Load the opponent model from the 'best_model.zip' file if it exists.
-        """
         if self.model_path:
             opponent_model_path = osp.join(self.model_path, "models/best_model.zip")
             if osp.exists(opponent_model_path):
@@ -81,58 +73,50 @@ class CustomEnvWrapper(gym.Wrapper):
         else:
             print("Model path not provided. Skipping opponent model update.")
 
+    def switch_controlled_player(self):
+        """Switch the controlled player."""
+        self.controlled_player = "player_1" if self.controlled_player == "player_0" else "player_0"
+
     def step(self, action):
         self.steps += 1
-        # Update the opponent model if the update interval is reached
         if self.steps % self.update_interval == 0:
             self.load_opponent_model()
 
+        agent = self.controlled_player
+        opp_agent = "player_1" if agent == "player_0" else "player_0"
         state = self.env.state  # Ensure state is defined
-        agent = "player_0"
-        opp_agent = "player_1"
 
         action = {agent: action}
-        action_mapping = {i: [i, 0, 0] for i in range(5)}  # Assuming you have 5 action choices
-
-        # Use the opponent_model to determine opponent's actions
+        
         if self.opponent_model:
-            # Predict the opponent's actions for all 16 units
             opponent_actions, _ = self.opponent_model.predict(self.opp_obs, deterministic=True)
-
-            # Initialize actions for all 16 units with [0, 0, 0] as the default action
-            actions_player_1 = [[0, 0, 0]] * 16
-
-            # Map the predicted actions to the required format
+            actions_opponent = [[0, 0, 0]] * 16
+            action_mapping = {i: [i, 0, 0] for i in range(5)}
             for unit_id, unit_action in enumerate(opponent_actions):
-                # Convert each unit's predicted action using the `action_mapping`
-                mapped_action = action_mapping[int(unit_action)]  # Ensure the action is cast to an int
-                actions_player_1[unit_id] = mapped_action  # Update the action for the corresponding unit
-
-            # Convert the updated list of actions into a jax numpy array
-            action["player_1"] = jnp.array(actions_player_1)
+                mapped_action = action_mapping[int(unit_action)]
+                actions_opponent[unit_id] = mapped_action
+            action[opp_agent] = jnp.array(actions_opponent)
         else:
-            action["player_1"] = jnp.array([[0, 0, 0]] * 16)  # 16 units with default [0, 0, 0] action for player_1
+            action[opp_agent] = jnp.array([[0, 0, 0]] * 16)
 
         # Initialize actions for all 16 units with [0, 0, 0] as the default action
-        actions_player_0 = [[0, 0, 0]] * 16  
+        actions_player = [[0, 0, 0]] * 16  
 
         # Map the input array of 16 actions (player_0's actions) to the required format
-        input_actions = action["player_0"]  # Assume this is an array of 16 actions
+        input_actions = action[agent]  
         for unit_id, unit_action in enumerate(input_actions):
-            # Convert each unit's action using the `action_mapping`
+            # Convert each unit's action using the action_mapping
             mapped_action = action_mapping[unit_action]  # Map the discrete action to [x, y, z]
-            actions_player_0[unit_id] = mapped_action  # Update the action for the corresponding unit
+            actions_player[unit_id] = mapped_action  # Update the action for the corresponding unit
 
         # Convert the updated list of actions into a jax numpy array
-        action["player_0"] = jnp.array(actions_player_0)
+        action[agent] = jnp.array(actions_player)
 
         obs, _, termination, truncation, info = self.env.step(action)
-        self.opp_obs = obs['player_1']
+        self.opp_obs = obs[opp_agent]
 
         done = {k: termination[k] or truncation[k] for k in termination}
         obs = obs[agent]
-
-       
 
         metrics = {
             "points_produced": state.team_points[0],
@@ -144,6 +128,7 @@ class CustomEnvWrapper(gym.Wrapper):
         }
         energy_end = 0
         advantage = 0
+
         if state.match_steps == 100:
             energy_end = 1 if metrics["energy"] > metrics["enemy_energy"] else -1
             advantage = 1 if metrics["points_produced"] > metrics["enemy_points"] else -1
@@ -190,14 +175,18 @@ class CustomEnvWrapper(gym.Wrapper):
         return obs, reward, termination[agent], truncation[agent], info
 
     def reset(self, **kwargs):
-        # Reset the wrapped environment
+        # Randomly switch controlled player with a 50% probability
+        if random.random() < 0.5:  # Generate a random float between 0 and 1
+            self.switch_controlled_player()
+
         obs, reset_info = self.env.reset(**kwargs)
+        self.env.eraseMemory()
 
-        # Initialize self.opp_obs with the initial observation for player_1
-        self.opp_obs = obs['player_1']
+        # Set opponent's observation based on the controlled player
+        self.opp_obs = obs["player_1"] if self.controlled_player == "player_0" else obs["player_0"]
 
-        # Return the observation for the active agent (player_0)
-        return obs["player_0"], reset_info
+        # Return the observation for the controlled player
+        return obs[self.controlled_player], reset_info
     
 def parse_args():
     import argparse
