@@ -1,4 +1,5 @@
 import os.path as osp
+import os 
 import random
 
 import gymnasium as gym
@@ -64,14 +65,25 @@ class CustomEnvWrapper(gym.Wrapper):
 
     def load_opponent_model(self):
         if self.model_path:
-            opponent_model_path = osp.join(self.model_path, "models/best_model.zip")
-            if osp.exists(opponent_model_path):
+            models_dir = osp.join(self.model_path, "models")
+            
+            # Get a list of all .zip files in the models directory
+            zip_files = [f for f in os.listdir(models_dir) if f.endswith('.zip')]
+
+            if zip_files:
+                # Randomly select a zip file
+                selected_model = random.choice(zip_files)
+                opponent_model_path = os.path.join(models_dir, selected_model)
                 print(f"Updating opponent model from {opponent_model_path}")
                 self.opponent_model = PPO.load(opponent_model_path)
             else:
-                print(f"No opponent model found at {opponent_model_path}. Skipping update.")
+                # No models found, set opponent_model to None
+                print("No model files found in the models directory. Opponent model set to None.")
+                self.opponent_model = None
         else:
-            print("Model path not provided. Skipping opponent model update.")
+            # No model path provided, set opponent_model to None
+            print("Model path not provided. Opponent model set to None.")
+            self.opponent_model = None
 
     def switch_controlled_player(self):
         """Switch the controlled player."""
@@ -84,14 +96,19 @@ class CustomEnvWrapper(gym.Wrapper):
 
         agent = self.controlled_player
         opp_agent = "player_1" if agent == "player_0" else "player_0"
+        team_id = 0 if agent == "player_0" else 1
+
+        opp_team_id = 1 if team_id == 0 else 0
+
         state = self.env.state  # Ensure state is defined
 
         action = {agent: action}
-        
+        action_mapping = {i: [i, 0, 0] for i in range(5)}
+
+
         if self.opponent_model:
-            opponent_actions, _ = self.opponent_model.predict(self.opp_obs, deterministic=True)
+            opponent_actions, _ = self.opponent_model.predict(self.opp_obs, deterministic=False)
             actions_opponent = [[0, 0, 0]] * 16
-            action_mapping = {i: [i, 0, 0] for i in range(5)}
             for unit_id, unit_action in enumerate(opponent_actions):
                 mapped_action = action_mapping[int(unit_action)]
                 actions_opponent[unit_id] = mapped_action
@@ -119,12 +136,12 @@ class CustomEnvWrapper(gym.Wrapper):
         obs = obs[agent]
 
         metrics = {
-            "points_produced": state.team_points[0],
-            'enemy_points': state.team_points[1],
-            "energy": sum(state.units.energy[0])[0]/1000,
-            "enemy_energy": sum(state.units.energy[1])[0]/1000,
-            "win": state.team_wins[0],
-            'lost': state.team_wins[1],
+            "points_produced": state.team_points[team_id],
+            'enemy_points': state.team_points[opp_team_id],
+            "energy": sum(state.units.energy[team_id])[0]/1000,
+            "enemy_energy": sum(state.units.energy[opp_team_id])[0]/1000,
+            "win": state.team_wins[team_id],
+            'lost': state.team_wins[opp_team_id],
         }
         energy_end = 0
         advantage = 0
@@ -176,8 +193,12 @@ class CustomEnvWrapper(gym.Wrapper):
 
     def reset(self, **kwargs):
         # Randomly switch controlled player with a 50% probability
-        if random.random() < 0.5:  # Generate a random float between 0 and 1
+        if random.random() < 0.5:
             self.switch_controlled_player()
+
+        # Randomly reload an opponent with a 30% probability
+        if random.random() < 0.3:  # 30% chance to load a new opponent
+            self.load_opponent_model()
 
         obs, reset_info = self.env.reset(**kwargs)
         self.env.eraseMemory()
@@ -298,25 +319,39 @@ def evaluate(args, env_id, model):
     out = evaluate_policy(model, eval_env, render=False, deterministic=False)
     print(out)
 
-def train(args, env_id, model: PPO, opponent_model = None):
+def train(args, env_id, model: PPO, opponent_model=None):
+    # Create evaluation environment
     eval_env = SubprocVecEnv(
         [make_env(env_id, i, max_episode_steps=1000, opponent_model=opponent_model) for i in range(4)]
     )
+    
+    # Evaluation callback for saving the best model
     eval_callback = EvalCallback(
         eval_env,
-        best_model_save_path=osp.join(args.log_path, "models"),
-        log_path=osp.join(args.log_path, "eval_logs"),
+        best_model_save_path=os.path.join(args.log_path, "models"),
+        log_path=os.path.join(args.log_path, "eval_logs"),
         eval_freq=24_000,
         deterministic=False,
         render=False,
         n_eval_episodes=5,
     )
-
-    model.learn(
-        args.total_timesteps,
-        callback=[TensorboardCallback(tag="train_metrics"), eval_callback],
+    
+    # Checkpoint callback for periodic saving
+    checkpoint_callback = CheckpointCallback(
+        save_freq=10_000,  # Adjust save frequency as needed
+        save_path=os.path.join(args.log_path, "models"),
+        name_prefix="ppo_checkpoint",
+        verbose=1,
     )
-    model.save(osp.join(args.log_path, "models/latest_model"))
+    
+    # Train the model with both callbacks
+    model.learn(
+        total_timesteps=args.total_timesteps,
+        callback=[TensorboardCallback(tag="train_metrics"), eval_callback, checkpoint_callback],
+    )
+    
+    # Save the final model
+    model.save(os.path.join(args.log_path, "models/latest_model"))
 
 
 

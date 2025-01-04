@@ -55,7 +55,7 @@ class SimpleUnitObservationWrapper(gym.ObservationWrapper):
     def __init__(self, env: gym.Env) -> None:
         super().__init__(env)
         self.state = None
-        self.observation_space = spaces.Box(-999, 999, shape=(16,1167))
+        self.observation_space = spaces.Box(-999, 999, shape=(16,1168))
         self.memory = {
             'player_0': {
                 "relics": set(),
@@ -107,7 +107,7 @@ class SimpleUnitObservationWrapper(gym.ObservationWrapper):
         memory['accessed']+=1
         observation = dict()
         for agent in obs.keys():
-            observation[agent] = np.zeros((16, 1167))  # Update shape to accommodate extra game info (e.g., 2 additional features)
+            observation[agent] = np.zeros((16, 1168)) 
             team_id = 0 if agent == "player_0" else 1
             opp_team_id = 1 if team_id == 0 else 0
             shared_obs = obs[agent]
@@ -155,6 +155,8 @@ class SimpleUnitObservationWrapper(gym.ObservationWrapper):
             enemy_wins = shared_obs["team_wins"][opp_team_id]
             team_wins = shared_obs["team_wins"][team_id]
             match_steps = shared_obs["match_steps"]
+            # Calculate total matches played
+            curr_match = team_wins + enemy_wins  
 
             # Convert memory["relics"] to a NumPy array
             relic_tile_locations = np.array(memory[agent]["relics"])
@@ -194,7 +196,7 @@ class SimpleUnitObservationWrapper(gym.ObservationWrapper):
                 obs_vec = np.concatenate([
                     unit_vec,
                     closest_relic_tile - pos,  # Relic tile information
-                    [team_points ,last_turn_points , match_steps / 100, team_wins/5,team_energy,team_id,visible_relics/total_relics,
+                    [curr_match,team_points ,last_turn_points , match_steps / 100, team_wins/5,team_energy,team_id,visible_relics/total_relics,
                      enemy_points, enemy_wins/5, enemy_energy],tile_type_map_flat,energy_map_flat  # Add normalized team points and match step
                 ])
                 observation[agent][i] = obs_vec
