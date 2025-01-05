@@ -54,7 +54,7 @@ def get_opponent_model(model_path="/models/opponent_model.zip"):
 
 
 class CustomEnvWrapper(gym.Wrapper):
-    def __init__(self, env: gym.Env, opponent_model=None, update_interval=10000, model_path='logs') -> None:
+    def __init__(self, env: gym.Env, opponent_model=None, update_interval=5000, model_path='logs') -> None:
         super().__init__(env)
         self.prev_step_metrics = None
         self.opponent_model = opponent_model
@@ -67,13 +67,19 @@ class CustomEnvWrapper(gym.Wrapper):
         if self.model_path:
             models_dir = osp.join(self.model_path, "models")
             
+            # Ensure the directory exists
+            if not osp.exists(models_dir):
+                print("Models directory does not exist. Opponent model set to None.")
+                self.opponent_model = None
+                return
+            
             # Get a list of all .zip files in the models directory
             zip_files = [f for f in os.listdir(models_dir) if f.endswith('.zip')]
 
             if zip_files:
                 # Randomly select a zip file
                 selected_model = random.choice(zip_files)
-                opponent_model_path = os.path.join(models_dir, selected_model)
+                opponent_model_path = osp.join(models_dir, selected_model)
                 print(f"Updating opponent model from {opponent_model_path}")
                 self.opponent_model = PPO.load(opponent_model_path)
             else:
@@ -84,7 +90,7 @@ class CustomEnvWrapper(gym.Wrapper):
             # No model path provided, set opponent_model to None
             print("Model path not provided. Opponent model set to None.")
             self.opponent_model = None
-
+            
     def switch_controlled_player(self):
         """Switch the controlled player."""
         self.controlled_player = "player_1" if self.controlled_player == "player_0" else "player_0"
@@ -168,23 +174,11 @@ class CustomEnvWrapper(gym.Wrapper):
             point_advantage = metrics["points_produced"] - metrics["enemy_points"]
             energy_advantage = metrics["energy"] - metrics["enemy_energy"]
 
-            # Non-terminal advantage signals
-            advantage_reward = 0
-            if point_advantage > 0:
-                advantage_reward += 0.01 * point_advantage  # Positive reward for point advantage
-            elif point_advantage < 0:
-                advantage_reward -= 0.01 * abs(point_advantage)  # Penalize for losing point advantage
-
-            if energy_advantage > 0:
-                advantage_reward += 0.005 * energy_advantage  # Reward for energy advantage
-            elif energy_advantage < 0:
-                advantage_reward -= 0.005 * abs(energy_advantage)  # Penalize for energy disadvantage
             reward = (
-                0.006 * (metrics["points_produced"] - self.prev_step_metrics["points_produced"])
-                + 0.002 * (metrics["energy"] - self.prev_step_metrics["energy"])
-                + advantage_reward
-                + 0.05 * advantage  # End-of-match advantage
-                + 0.05 * energy_end
+                0.00005 * (metrics["points_produced"] - self.prev_step_metrics["points_produced"])
+                + 0.001 * (metrics["energy"] - self.prev_step_metrics["energy"])
+                + 0.005 * advantage  # End-of-match advantage
+                + 0.005 * energy_end
                 + 0.2 * roundWin
                 + 1.0 * matchWin
             )
@@ -195,10 +189,6 @@ class CustomEnvWrapper(gym.Wrapper):
         # Randomly switch controlled player with a 50% probability
         if random.random() < 0.5:
             self.switch_controlled_player()
-
-        # Randomly reload an opponent with a 30% probability
-        if random.random() < 0.3:  # 30% chance to load a new opponent
-            self.load_opponent_model()
 
         obs, reset_info = self.env.reset(**kwargs)
         self.env.eraseMemory()

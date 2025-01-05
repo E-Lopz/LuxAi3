@@ -26,16 +26,22 @@ def append_unique_relics(existing_positions, new_positions):
         if not any(np.array_equal(position, existing) for existing in existing_positions):
             existing_positions.append(position)
 
-def update_map_features(width,height,tile_type_map,energy_map,memory_map):
+def update_map_features(width,height,tile_type_map,energy_map,memory_map,sensor_mask):
     # Check if new tiles are discovered and update memory        
     # Example logic for updating map memory based on visibility
     for x in range(width):
         for y in range(height):
-            if tile_type_map[x][y] != -1:  # If the tile is discovered
+            if sensor_mask[x][y]:  # If the tile is discovered
                 # Update map features
                 memory_map['energy'][x][y] = energy_map[x][y]
                 memory_map["tile_type"][x][y] = tile_type_map[x][y]
     return memory_map
+
+def calculate_exploration_ratio(sensor_mask):
+    # Convert the mask to a boolean where True represents visible tiles
+    visible_tiles = (sensor_mask != False).sum()
+    total_tiles = sensor_mask.size
+    return visible_tiles / total_tiles
 
 
 class SimpleUnitObservationWrapper(gym.ObservationWrapper):
@@ -55,7 +61,7 @@ class SimpleUnitObservationWrapper(gym.ObservationWrapper):
     def __init__(self, env: gym.Env) -> None:
         super().__init__(env)
         self.state = None
-        self.observation_space = spaces.Box(-999, 999, shape=(16,1168))
+        self.observation_space = spaces.Box(-999, 999, shape=(16,1169))
         self.memory = {
             'player_0': {
                 "relics": set(),
@@ -107,7 +113,7 @@ class SimpleUnitObservationWrapper(gym.ObservationWrapper):
         memory['accessed']+=1
         observation = dict()
         for agent in obs.keys():
-            observation[agent] = np.zeros((16, 1168)) 
+            observation[agent] = np.zeros((16, 1169)) 
             team_id = 0 if agent == "player_0" else 1
             opp_team_id = 1 if team_id == 0 else 0
             shared_obs = obs[agent]
@@ -116,6 +122,7 @@ class SimpleUnitObservationWrapper(gym.ObservationWrapper):
             map_features = shared_obs["map_features"]
             energy_map = map_features["energy"]
             tile_type_map = map_features["tile_type"]
+            sensor_mask = shared_obs['sensor_mask']
             map_size = energy_map.shape  # Get map size (width, height)
             width, height = energy_map.shape
 
@@ -132,11 +139,13 @@ class SimpleUnitObservationWrapper(gym.ObservationWrapper):
                 
                          
             memory_map = memory[agent]['map']
-            memory_map=update_map_features(width,height,tile_type_map,energy_map,memory_map)
+            memory_map=update_map_features(width,height,tile_type_map,energy_map,memory_map,sensor_mask)
             memory[agent]['map']=memory_map
             # Concatenate updated map data with the rest of the features
             energy_map_flat = memory_map['energy'].flatten()  # Flatten 24x24 energy map to a 1D array
             tile_type_map_flat = memory_map['tile_type'].flatten()
+
+            exp_ratio = calculate_exploration_ratio(sensor_mask)
 
             # Update visible relic positions
             visible_relic_positions = relic_map[relic_nodes_mask == 1]
@@ -197,7 +206,7 @@ class SimpleUnitObservationWrapper(gym.ObservationWrapper):
                     unit_vec,
                     closest_relic_tile - pos,  # Relic tile information
                     [curr_match,team_points ,last_turn_points , match_steps / 100, team_wins/5,team_energy,team_id,visible_relics/total_relics,
-                     enemy_points, enemy_wins/5, enemy_energy],tile_type_map_flat,energy_map_flat  # Add normalized team points and match step
+                     enemy_points, enemy_wins/5, enemy_energy,exp_ratio],tile_type_map_flat,energy_map_flat  # Add normalized team points and match step
                 ])
                 observation[agent][i] = obs_vec
 
