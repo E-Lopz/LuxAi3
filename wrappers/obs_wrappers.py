@@ -1,5 +1,4 @@
 from typing import Any, Dict
-import sys
 
 
 import gymnasium as gym
@@ -103,9 +102,6 @@ class SimpleUnitObservationWrapper(gym.ObservationWrapper):
         
 
                     
-
-
-
 
     # Modify the method to include game environment information
     @staticmethod

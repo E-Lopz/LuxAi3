@@ -1,6 +1,5 @@
 import json
 from typing import Dict
-import sys
 from argparse import Namespace
 
 import numpy as np

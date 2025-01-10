@@ -1,11 +1,9 @@
-import sys
 from typing import Any, Dict
 
 import numpy as np
 import numpy.typing as npt
 from gymnasium import spaces
 from gymnasium.spaces import MultiDiscrete
-import jax
 import jax.numpy as jnp
 
 
@@ -121,28 +119,6 @@ class SimpleUnitDiscreteController(Controller):
         lux_action = actions_player
         # Convert the list of actions into a jax numpy array
         lux_action = jnp.array(lux_action)
-
-        '''for unit_id in range(16):
-            unit = units[unit_id]
-            choice = action
-            action_queue = []
-            no_op = False
-            if self._is_move_action(choice):
-                action_queue = [self._get_move_action(choice)]
-            else:
-                # action is a no_op, so we don't update the action queue
-                no_op = True
-
-            # simple trick to help agents conserve power is to avoid updating the action queue
-            # if the agent was previously trying to do that particular action already
-            if len(unit["action_queue"]) > 0 and len(action_queue) > 0:
-                same_actions = (unit["action_queue"][0] == action_queue[0]).all()
-                if same_actions:
-                    no_op = True
-            if not no_op:
-                lux_action[unit_id] = action_queue'''
-
-            #break
 
         return lux_action
 

@@ -1,6 +1,5 @@
 import json
 from typing import Dict
-import sys
 from argparse import Namespace
 
 import numpy as np
@@ -9,15 +8,6 @@ from agent import Agent
 # from lux.config import EnvConfig
 from lux.kit import from_json
 
-import pickle
-
-
-def load_trained_agent():
-    try:
-        with open("trained_agent.pkl", "rb") as f:
-            return pickle.load(f)
-    except FileNotFoundError:
-        return None
 
 ### DO NOT REMOVE THE FOLLOWING CODE ###
 agent_dict = dict() # store potentially multiple dictionaries as kaggle imports code directly
